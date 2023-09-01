@@ -1,0 +1,16 @@
+version: '3.1'
+services:
+  postgres-bookmarks:
+    image: postgres:15
+    container_name: 'postgres-bookmarks'
+    restart: always
+    environment:
+      POSTGRES_PASSWORD: 'postgres' # this should be changed
+    volumes:
+      - postgres-bookmarks-data:/var/lib/postgresql/data
+    ports:
+      - 5432:5432
+
+volumes:
+  postgres-bookmarks-data:
+    driver: local

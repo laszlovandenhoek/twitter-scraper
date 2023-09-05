@@ -37,7 +37,7 @@ def initialize_database():
             liked BOOLEAN NOT NULL DEFAULT False,
             category TEXT DEFAULT NULL,
             important BOOLEAN NOT NULL DEFAULT False,
-            done BOOLEAN NOT NULL DEFAULT False
+            archived BOOLEAN NOT NULL DEFAULT False
         )
     ''')
 

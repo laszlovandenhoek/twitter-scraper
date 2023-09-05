@@ -2,6 +2,8 @@ A tool to retrieve, store, inspect and categorize your liked and bookmarked twee
 
 ⚠ Using this tool likely violates the Twitter Terms of Service! Do not use it! ⚠
 
+I extensively used ChatGPT (GPT-4 with Advanced Data Analytics enabled) for this project. Prompts are in the `/ChatGPT` folder. I manually customized the script to support both bookmarks and likes.
+
 # Requirements
 
 - Python

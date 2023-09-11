@@ -4,6 +4,8 @@ A tool to retrieve, store, inspect and categorize your liked and bookmarked twee
 
 I extensively used ChatGPT (GPT-4 with Advanced Data Analytics enabled) for this project. Prompts are in the `/ChatGPT` folder. I manually customized the script to support both bookmarks and likes.
 
+Also see https://github.com/laszlovandenhoek/twitter-scraps-manager to see what you could do with this data.
+
 # Requirements
 
 - Python

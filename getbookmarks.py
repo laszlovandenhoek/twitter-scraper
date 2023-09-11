@@ -57,7 +57,7 @@ def save_tweets_to_database(conn, items: list[tuple[str, str, str, str, str, str
     for item in items:
         rest_id = int(item[0])
 
-        # this will skip over tw
+        # this will skip over tweets that were included as part of a different list
         c.execute(f"SELECT COUNT(rest_id) FROM tweets WHERE rest_id = '%s' AND bookmarked != liked", (rest_id,))
         row = c.fetchone()
 

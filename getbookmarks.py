@@ -32,6 +32,7 @@ def initialize_database():
             sort_index VARCHAR(20) NOT NULL,
             screen_name TEXT NOT NULL,
             created_at TIMESTAMP NOT NULL,
+            fetched_at TIMESTAMP NOT NULL DEFAULT NOW(),
             full_text TEXT NOT NULL,
             bookmarked BOOLEAN NOT NULL DEFAULT False,
             liked BOOLEAN NOT NULL DEFAULT False,
@@ -40,6 +41,8 @@ def initialize_database():
             archived BOOLEAN NOT NULL DEFAULT False
         )
     ''')
+
+    
 
     conn.commit()
 

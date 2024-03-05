@@ -25,7 +25,7 @@ def initialize_database():
 
     c = conn.cursor()
 
-    # Create the table if it doesn't exist
+    # Create tables if they don't yet exist
     c.execute('''
         CREATE TABLE IF NOT EXISTS tweets (
             rest_id VARCHAR(20) PRIMARY KEY,
@@ -36,13 +36,27 @@ def initialize_database():
             full_text TEXT NOT NULL,
             bookmarked BOOLEAN NOT NULL DEFAULT False,
             liked BOOLEAN NOT NULL DEFAULT False,
-            category TEXT DEFAULT NULL,
             important BOOLEAN NOT NULL DEFAULT False,
             archived BOOLEAN NOT NULL DEFAULT False
         )
     ''')
 
-    
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS categories (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL UNIQUE
+        )
+    ''')
+
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS tweet_categories (
+            tweet_id VARCHAR(20),
+            category_id INTEGER,
+            PRIMARY KEY (tweet_id, category_id),
+            FOREIGN KEY (tweet_id) REFERENCES tweets(rest_id),
+            FOREIGN KEY (category_id) REFERENCES categories(id)
+        )
+    ''')
 
     conn.commit()
 

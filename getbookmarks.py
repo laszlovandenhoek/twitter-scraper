@@ -2,6 +2,7 @@ import base64
 import json
 import random
 import sys
+import json
 from urllib.parse import quote
 
 import psycopg2
@@ -64,7 +65,7 @@ def initialize_database():
     return conn
 
 
-def save_tweets_to_database(conn, items: list[tuple[str, str, str, str, str, str, str]]):
+def save_tweets_to_database(conn, items: list[tuple[str, str, str, str, str, str, str, str]]):
     c = conn.cursor()
     # Check if we have data
     if not items:
@@ -75,7 +76,7 @@ def save_tweets_to_database(conn, items: list[tuple[str, str, str, str, str, str
         rest_id = int(item[0])
 
         # this will skip over tweets that were included as part of a different list
-        c.execute(f"SELECT COUNT(rest_id) FROM tweets WHERE rest_id = '%s' AND bookmarked != liked", (rest_id,))
+        c.execute(f"SELECT COUNT(rest_id) FROM tweets WHERE rest_id = '%s' AND ((bookmarked != liked) AND source_json IS NOT NULL)", (rest_id,))
         row = c.fetchone()
 
         if row[0] > 0:
@@ -84,7 +85,7 @@ def save_tweets_to_database(conn, items: list[tuple[str, str, str, str, str, str
 
         # New data, insert it
         c.execute(
-            "INSERT INTO tweets (rest_id, sort_index, screen_name, created_at, bookmarked, liked, full_text) VALUES (%s, %s, %s, %s, %s, %s, %s) ON CONFLICT (rest_id) DO UPDATE SET bookmarked = EXCLUDED.bookmarked, liked = EXCLUDED.liked",
+            "INSERT INTO tweets (rest_id, sort_index, screen_name, created_at, bookmarked, liked, full_text, source_json) VALUES (%s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (rest_id) DO UPDATE SET bookmarked = EXCLUDED.bookmarked, liked = EXCLUDED.liked, source_json = EXCLUDED.source_json",
             item)
         conn.commit()
         print(f"added rest_id {rest_id}")
@@ -98,7 +99,7 @@ def fetch_data(url, headers):
     return response.json()
 
 
-def parse_entries(entries) -> tuple[list[tuple[str, str, str, str, str, str, str]], str | None]:
+def parse_entries(entries) -> tuple[list[tuple[str, str, str, str, str, str, str, str]], str | None]:
     parsed_data = []
     next_cursor = None
     for entry in entries:
@@ -116,7 +117,8 @@ def parse_entries(entries) -> tuple[list[tuple[str, str, str, str, str, str, str
             )
             bookmarked = result['legacy']['bookmarked']
             liked = result['legacy']['favorited']
-            parsed_data.append((rest_id, sort_index, screen_name, created_at, bookmarked, liked, full_text))
+            entry_json = json.dumps(entry)
+            parsed_data.append((rest_id, sort_index, screen_name, created_at, bookmarked, liked, full_text, entry_json))
         elif 'content' in entry and 'cursorType' in entry['content'] and entry['content']['cursorType'] == "Bottom":
             next_cursor = entry['content']['value']
     return parsed_data, next_cursor
@@ -159,7 +161,7 @@ def fetch_until_done(fetch_command, extractor):
         print(f"got {len(entries)} entries")
 
         # Parse the data
-        data: list[tuple[str, str, str, str, str, str, str]]
+        data: list[tuple[str, str, str, str, str, str, str, str]]
         data, next_cursor = parse_entries(entries)
 
         # Save to database

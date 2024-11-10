@@ -38,7 +38,8 @@ def initialize_database():
             bookmarked BOOLEAN NOT NULL DEFAULT False,
             liked BOOLEAN NOT NULL DEFAULT False,
             important BOOLEAN NOT NULL DEFAULT False,
-            archived BOOLEAN NOT NULL DEFAULT False
+            archived BOOLEAN NOT NULL DEFAULT False,
+            source_json JSONB NOT NULL
         )
     ''')
 

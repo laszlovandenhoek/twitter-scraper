@@ -19,11 +19,8 @@ Also see https://github.com/laszlovandenhoek/twitter-scraps-manager to see what 
   - edit password in `docker-compose.yml`
 - Copy `db_config.ini.example` to `db_config.ini`
   - set `password` to same value
-- Set up Virtual environment
-  - `python3 -m venv .env`
-  - `. ./.env/activate`
-  - `pip install -r requirements.txt`
-- Log in to Twitter in your browser
+- Set up `uv` for dependency management (https://docs.astral.sh/uv/getting-started/installation/ - thank me later)
+- Log in to Twitter in Chrome
   - Open Developer Console (F12)
   - Open network tab
   - Check "Preserve log"
@@ -35,7 +32,8 @@ Also see https://github.com/laszlovandenhoek/twitter-scraps-manager to see what 
   - Do the same for the "Bookmarks?" request
     - Paste that too
 - Run the script
-  - Command line should be: `python3 /path/to/getbookmarks.py 'fetch(...);' 'fetch(...);'`, where the `fetch(...)` parts are the ones previously copy/pasted from the network requests tab
+  - `cd` into the project root directory if you haven't already
+  - Command line should be: `uv run getbookmarks.py 'fetch(...);' 'fetch(...);'`, where the `fetch(...)` parts are the ones previously copy/pasted from the network requests tab
     - Note the single quotes around the fetch commands; this is to prevent command interpolation by the shell.
 
 Let the script run until it ends naturally. At that point, you will have a database full of tweets. If you add more likes/bookmarks later, you can rerun the script, but each time you do, let it run without interruptions, or you'll have gaps. If that does happen anyway for some reason, remove all tweets with a higher sortIndex than the first missing tweet (or just drop the whole database) and rerun the script. 

@@ -1,3 +1,4 @@
 /db_config.ini
 .idea
 .env
+__pycache__

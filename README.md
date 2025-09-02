@@ -25,8 +25,8 @@ Also see https://github.com/laszlovandenhoek/twitter-scraps-manager to see what 
   - Open network tab
   - Check "Preserve log"
   - Filter Fetch/XHR requests containing "graphql"
-  - Navigate to to `https://twitter.com/<username>/likes`
-  - Navigate to to `https://twitter.com/i/bookmarks`
+  - Navigate to `https://twitter.com/<username>/likes`
+  - Navigate to `https://twitter.com/i/bookmarks`
   - In the list of requests, right-click the "Likes?..." request and select "Copy as Node.js fetch"
     - Paste this somewhere
   - Do the same for the "Bookmarks?" request
@@ -37,3 +37,6 @@ Also see https://github.com/laszlovandenhoek/twitter-scraps-manager to see what 
     - Note the single quotes around the fetch commands; this is to prevent command interpolation by the shell.
 
 Let the script run until it ends naturally. At that point, you will have a database full of tweets. If you add more likes/bookmarks later, you can rerun the script, but each time you do, let it run without interruptions, or you'll have gaps. If that does happen anyway for some reason, remove all tweets with a higher sortIndex than the first missing tweet (or just drop the whole database) and rerun the script. 
+
+#TODO: follow cursor on threads
+#TODO: make tweet parsing more generic (extract to functions)

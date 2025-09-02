@@ -5,7 +5,10 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "fastapi[standard]>=0.115.13",
     "psycopg2",
     "requests",
-    "urllib3"
+    "twitter-openapi-python==0.0.41",
+    "urllib3",
+    "uvicorn>=0.34.3",
 ]

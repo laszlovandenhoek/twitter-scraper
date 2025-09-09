@@ -6,7 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]>=0.115.13",
-    "psycopg2",
+    "psycopg2-binary>=2.9.10",
     "requests",
     "twitter-openapi-python==0.0.41",
     "urllib3",

@@ -29,6 +29,7 @@ Also see https://github.com/laszlovandenhoek/twitter-scraps-manager to see what 
   - Navigate to `https://twitter.com/i/bookmarks`
   - In the list of requests, right-click the "Likes?..." request and select "Copy as Node.js fetch"
     - Paste this somewhere
+    
   - Do the same for the "Bookmarks?" request
     - Paste that too
 - Run the script

@@ -1,0 +1,335 @@
+{
+  "raw": {
+    "response": {
+      "status_code": 200,
+      "headers": {
+        "Date": "Fri, 20 Jun 2025 14:36:16 GMT",
+        "Content-Type": "application/json; charset=utf-8",
+        "Transfer-Encoding": "chunked",
+        "Connection": "keep-alive",
+        "perf": "7402827104",
+        "vary": "accept-encoding",
+        "pragma": "no-cache",
+        "expires": "Tue, 31 Mar 1981 05:00:00 GMT",
+        "Cache-Control": "no-cache, no-store, must-revalidate, pre-check=0, post-check=0",
+        "last-modified": "Fri, 20 Jun 2025 14:36:16 GMT",
+        "x-frame-options": "SAMEORIGIN",
+        "x-transaction-id": "0000000000000000",
+        "x-xss-protection": "0",
+        "x-rate-limit-limit": "500",
+        "x-rate-limit-reset": "1750431075",
+        "content-disposition": "attachment; filename=json.json",
+        "x-tfe-preserve-body": "true",
+        "x-content-type-options": "nosniff",
+        "x-rate-limit-remaining": "498",
+        "x-twitter-response-tags": "BouncerCompliant",
+        "strict-transport-security": "max-age=631138519; includeSubdomains",
+        "x-response-time": "75",
+        "x-connection-hash": "0000000000000000000000000000000000000000000000000000000000000000",
+        "cf-cache-status": "DYNAMIC",
+        "Set-Cookie": "__cf_bm=x; path=/; expires=Fri, 20-Jun-25 15:06:16 GMT; domain=.x.com; HttpOnly; Secure; SameSite=None",
+        "Server": "cloudflare tsa_b",
+        "CF-RAY": "0000000000000000-XXX"
+      },
+      "data": {
+        "data": {
+          "user": {
+            "result": {
+              "typename": "User",
+              "timeline": {
+                "id": null,
+                "timeline": {
+                  "instructions": [
+                    {
+                      "oneof_schema_1_validator": null,
+                      "oneof_schema_2_validator": null,
+                      "oneof_schema_3_validator": null,
+                      "oneof_schema_4_validator": null,
+                      "oneof_schema_5_validator": null,
+                      "oneof_schema_6_validator": null,
+                      "oneof_schema_7_validator": null,
+                      "oneof_schema_8_validator": null,
+                      "oneof_schema_9_validator": null,
+                      "oneof_schema_10_validator": null,
+                      "actual_instance": {
+                        "entries": [
+                          {
+                            "content": {
+                              "oneof_schema_1_validator": null,
+                              "oneof_schema_2_validator": null,
+                              "oneof_schema_3_validator": null,
+                              "actual_instance": {
+                                "typename": "TimelineTimelineCursor",
+                                "cursor_type": "Top",
+                                "display_treatment": null,
+                                "entry_type": "TimelineTimelineCursor",
+                                "item_type": null,
+                                "stop_on_empty_response": null,
+                                "value": "DAAHCgABGt5N83yATiILAAIAAAATMTgzNTQ1Mjk0MTU1NjU4OTY0MAgAAwAAAAEAAA"
+                              },
+                              "one_of_schemas": [
+                                "TimelineTimelineItem",
+                                "TimelineTimelineCursor",
+                                "TimelineTimelineModule"
+                              ],
+                              "discriminator_value_class_map": {}
+                            },
+                            "entry_id": "cursor-top-1936070597977057042",
+                            "sort_index": "1936070597977057042"
+                          },
+                          {
+                            "content": {
+                              "oneof_schema_1_validator": null,
+                              "oneof_schema_2_validator": null,
+                              "oneof_schema_3_validator": null,
+                              "actual_instance": {
+                                "typename": "TimelineTimelineCursor",
+                                "cursor_type": "Bottom",
+                                "display_treatment": null,
+                                "entry_type": "TimelineTimelineCursor",
+                                "item_type": null,
+                                "stop_on_empty_response": null,
+                                "value": "DAAHCgABGt5N83yAJxELAAIAAAATMTgzNTQ1Mjk0MTU1NjU4OTY0MAgAAwAAAAIAAA"
+                              },
+                              "one_of_schemas": [
+                                "TimelineTimelineItem",
+                                "TimelineTimelineCursor",
+                                "TimelineTimelineModule"
+                              ],
+                              "discriminator_value_class_map": {}
+                            },
+                            "entry_id": "cursor-bottom-1936070597977057041",
+                            "sort_index": "1936070597977057041"
+                          }
+                        ],
+                        "type": "TimelineAddEntries"
+                      },
+                      "one_of_schemas": [
+                        "TimelineShowAlert",
+                        "TimelineMarkEntriesUnreadGreaterThanSortIndex",
+                        "TimelineAddToModule",
+                        "TimelineClearCache",
+                        "TimelinePinEntry",
+                        "TimelineTerminateTimeline",
+                        "TimelineAddEntries",
+                        "TimelineClearEntriesUnreadState",
+                        "TimelineReplaceEntry",
+                        "TimelineShowCover"
+                      ],
+                      "discriminator_value_class_map": {}
+                    }
+                  ],
+                  "metadata": {
+                    "scribeConfig": {
+                      "page": "favorites"
+                    }
+                  },
+                  "response_objects": null
+                }
+              }
+            }
+          }
+        },
+        "errors": null
+      },
+      "raw_data": "{\"data\":{\"user\":{\"result\":{\"__typename\":\"User\",\"timeline\":{\"timeline\":{\"instructions\":[{\"type\":\"TimelineAddEntries\",\"entries\":[{\"entryId\":\"cursor-top-1936070597977057042\",\"sortIndex\":\"1936070597977057042\",\"content\":{\"entryType\":\"TimelineTimelineCursor\",\"__typename\":\"TimelineTimelineCursor\",\"value\":\"DAAHCgABGt5N83yATiILAAIAAAATMTgzNTQ1Mjk0MTU1NjU4OTY0MAgAAwAAAAEAAA\",\"cursorType\":\"Top\"}},{\"entryId\":\"cursor-bottom-1936070597977057041\",\"sortIndex\":\"1936070597977057041\",\"content\":{\"entryType\":\"TimelineTimelineCursor\",\"__typename\":\"TimelineTimelineCursor\",\"value\":\"DAAHCgABGt5N83yAJxELAAIAAAATMTgzNTQ1Mjk0MTU1NjU4OTY0MAgAAwAAAAIAAA\",\"cursorType\":\"Bottom\"}}]}],\"metadata\":{\"scribeConfig\":{\"page\":\"favorites\"}}}}}}}}"
+    }
+  },
+  "data": {
+    "raw": {
+      "instruction": [
+        {
+          "oneof_schema_1_validator": null,
+          "oneof_schema_2_validator": null,
+          "oneof_schema_3_validator": null,
+          "oneof_schema_4_validator": null,
+          "oneof_schema_5_validator": null,
+          "oneof_schema_6_validator": null,
+          "oneof_schema_7_validator": null,
+          "oneof_schema_8_validator": null,
+          "oneof_schema_9_validator": null,
+          "oneof_schema_10_validator": null,
+          "actual_instance": {
+            "entries": [
+              {
+                "content": {
+                  "oneof_schema_1_validator": null,
+                  "oneof_schema_2_validator": null,
+                  "oneof_schema_3_validator": null,
+                  "actual_instance": {
+                    "typename": "TimelineTimelineCursor",
+                    "cursor_type": "Top",
+                    "display_treatment": null,
+                    "entry_type": "TimelineTimelineCursor",
+                    "item_type": null,
+                    "stop_on_empty_response": null,
+                    "value": "DAAHCgABGt5N83yATiILAAIAAAATMTgzNTQ1Mjk0MTU1NjU4OTY0MAgAAwAAAAEAAA"
+                  },
+                  "one_of_schemas": [
+                    "TimelineTimelineItem",
+                    "TimelineTimelineCursor",
+                    "TimelineTimelineModule"
+                  ],
+                  "discriminator_value_class_map": {}
+                },
+                "entry_id": "cursor-top-1936070597977057042",
+                "sort_index": "1936070597977057042"
+              },
+              {
+                "content": {
+                  "oneof_schema_1_validator": null,
+                  "oneof_schema_2_validator": null,
+                  "oneof_schema_3_validator": null,
+                  "actual_instance": {
+                    "typename": "TimelineTimelineCursor",
+                    "cursor_type": "Bottom",
+                    "display_treatment": null,
+                    "entry_type": "TimelineTimelineCursor",
+                    "item_type": null,
+                    "stop_on_empty_response": null,
+                    "value": "DAAHCgABGt5N83yAJxELAAIAAAATMTgzNTQ1Mjk0MTU1NjU4OTY0MAgAAwAAAAIAAA"
+                  },
+                  "one_of_schemas": [
+                    "TimelineTimelineItem",
+                    "TimelineTimelineCursor",
+                    "TimelineTimelineModule"
+                  ],
+                  "discriminator_value_class_map": {}
+                },
+                "entry_id": "cursor-bottom-1936070597977057041",
+                "sort_index": "1936070597977057041"
+              }
+            ],
+            "type": "TimelineAddEntries"
+          },
+          "one_of_schemas": [
+            "TimelineShowAlert",
+            "TimelineMarkEntriesUnreadGreaterThanSortIndex",
+            "TimelineAddToModule",
+            "TimelineClearCache",
+            "TimelinePinEntry",
+            "TimelineTerminateTimeline",
+            "TimelineAddEntries",
+            "TimelineClearEntriesUnreadState",
+            "TimelineReplaceEntry",
+            "TimelineShowCover"
+          ],
+          "discriminator_value_class_map": {}
+        }
+      ],
+      "entry": [
+        {
+          "content": {
+            "oneof_schema_1_validator": null,
+            "oneof_schema_2_validator": null,
+            "oneof_schema_3_validator": null,
+            "actual_instance": {
+              "typename": "TimelineTimelineCursor",
+              "cursor_type": "Top",
+              "display_treatment": null,
+              "entry_type": "TimelineTimelineCursor",
+              "item_type": null,
+              "stop_on_empty_response": null,
+              "value": "DAAHCgABGt5N83yATiILAAIAAAATMTgzNTQ1Mjk0MTU1NjU4OTY0MAgAAwAAAAEAAA"
+            },
+            "one_of_schemas": [
+              "TimelineTimelineItem",
+              "TimelineTimelineCursor",
+              "TimelineTimelineModule"
+            ],
+            "discriminator_value_class_map": {}
+          },
+          "entry_id": "cursor-top-1936070597977057042",
+          "sort_index": "1936070597977057042"
+        },
+        {
+          "content": {
+            "oneof_schema_1_validator": null,
+            "oneof_schema_2_validator": null,
+            "oneof_schema_3_validator": null,
+            "actual_instance": {
+              "typename": "TimelineTimelineCursor",
+              "cursor_type": "Bottom",
+              "display_treatment": null,
+              "entry_type": "TimelineTimelineCursor",
+              "item_type": null,
+              "stop_on_empty_response": null,
+              "value": "DAAHCgABGt5N83yAJxELAAIAAAATMTgzNTQ1Mjk0MTU1NjU4OTY0MAgAAwAAAAIAAA"
+            },
+            "one_of_schemas": [
+              "TimelineTimelineItem",
+              "TimelineTimelineCursor",
+              "TimelineTimelineModule"
+            ],
+            "discriminator_value_class_map": {}
+          },
+          "entry_id": "cursor-bottom-1936070597977057041",
+          "sort_index": "1936070597977057041"
+        }
+      ]
+    },
+    "cursor": {
+      "bottom": {
+        "typename": "TimelineTimelineCursor",
+        "cursor_type": "Bottom",
+        "display_treatment": null,
+        "entry_type": "TimelineTimelineCursor",
+        "item_type": null,
+        "stop_on_empty_response": null,
+        "value": "DAAHCgABGt5N83yAJxELAAIAAAATMTgzNTQ1Mjk0MTU1NjU4OTY0MAgAAwAAAAIAAA"
+      },
+      "top": {
+        "typename": "TimelineTimelineCursor",
+        "cursor_type": "Top",
+        "display_treatment": null,
+        "entry_type": "TimelineTimelineCursor",
+        "item_type": null,
+        "stop_on_empty_response": null,
+        "value": "DAAHCgABGt5N83yATiILAAIAAAATMTgzNTQ1Mjk0MTU1NjU4OTY0MAgAAwAAAAEAAA"
+      }
+    },
+    "data": []
+  },
+  "header": {
+    "raw": {
+      "Date": "Fri, 20 Jun 2025 14:36:16 GMT",
+      "Content-Type": "application/json; charset=utf-8",
+      "Transfer-Encoding": "chunked",
+      "Connection": "keep-alive",
+      "perf": "7402827104",
+      "vary": "accept-encoding",
+      "pragma": "no-cache",
+      "expires": "Tue, 31 Mar 1981 05:00:00 GMT",
+      "Cache-Control": "no-cache, no-store, must-revalidate, pre-check=0, post-check=0",
+      "last-modified": "Fri, 20 Jun 2025 14:36:16 GMT",
+      "x-frame-options": "SAMEORIGIN",
+      "x-transaction-id": "2ef41f5afc370855",
+      "x-xss-protection": "0",
+      "x-rate-limit-limit": "500",
+      "x-rate-limit-reset": "1750431075",
+      "content-disposition": "attachment; filename=json.json",
+      "x-tfe-preserve-body": "true",
+      "x-content-type-options": "nosniff",
+      "x-rate-limit-remaining": "498",
+      "x-twitter-response-tags": "BouncerCompliant",
+      "strict-transport-security": "max-age=631138519; includeSubdomains",
+      "x-response-time": "75",
+      "x-connection-hash": "71fc17c7010223683241ad7a6ca5b91e2c0169687ecd0b73e94d95c589b29660",
+      "cf-cache-status": "DYNAMIC",
+      "Set-Cookie": "__cf_bm=L1Oh8u9zqV9CsYz3Q0qjnuudM0LLfO9TbOe5SBumZ3A-1750430176-1.0.1.1-r3tyLJdWu516R7lFcJiXHJdKxhkrj7vHcjfOdU8u9.Pnd6fOCUS6CuV5OLsarlvwxc62OmJkSa72nARSgtcTX6nk72yFqaNMPSLHNZ1uJww; path=/; expires=Fri, 20-Jun-25 15:06:16 GMT; domain=.x.com; HttpOnly; Secure; SameSite=None",
+      "Server": "cloudflare tsa_b",
+      "CF-RAY": "952bff5b488f4f72-AMS"
+    },
+    "connection_hash": "71fc17c7010223683241ad7a6ca5b91e2c0169687ecd0b73e94d95c589b29660",
+    "content_type_options": "nosniff",
+    "frame_options": "SAMEORIGIN",
+    "response_time": 75,
+    "tfe_preserve_body": true,
+    "transaction_id": "2ef41f5afc370855",
+    "xss_protection": 0,
+    "rate_limit_limit": 500,
+    "rate_limit_remaining": 498,
+    "rate_limit_reset": 1750431075,
+    "twitter_response_tags": "BouncerCompliant"
+  }
+}

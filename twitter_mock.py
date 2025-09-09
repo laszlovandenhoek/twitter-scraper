@@ -1,7 +1,7 @@
 import json
 from fastapi import FastAPI, Request
 import logging
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, Response
 import uvicorn
 
 # Configure logging
@@ -49,8 +49,14 @@ async def bookmarks() -> JSONResponse:
 @app.get("/graphql/lIDpu_NWL7_VhimGGt0o6A/Likes")
 async def likes(request: Request) -> JSONResponse:
     if ("cursor" in request.query_params.get("variables")):
-        print("cursor in request")
-        return respond_using_file("likes2.json")
+        cursor = json.loads(request.query_params.get("variables")).get("cursor")
+        print("cursor in request: "+cursor)
+        if cursor == "DAAHCgABGtoHf8GAJxELAAIAAAATMTgzNTE1MTkwMzE5Mjc4MzY2NggAAwAAAAEAAA":
+            return respond_using_file("likes0.json")
+        elif cursor == "DAAHCgABGtoHf8F__-wLAAIAAAATMTgzNDU1NDIzNTAwMTAyNjE2OAgAAwAAAAIAAA":
+            return respond_using_file("likes2.json")
+        else:
+            return Response(status_code=404)
     else:
         print("no cursor in request")
         return respond_using_file("likes.json")

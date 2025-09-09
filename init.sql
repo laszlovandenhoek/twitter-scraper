@@ -1,3 +1,13 @@
+CREATE TABLE IF NOT EXISTS fetches (
+    id SERIAL PRIMARY KEY,
+    started_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    finished_at TIMESTAMP,
+    is_likes BOOLEAN NOT NULL,
+    is_bookmarks BOOLEAN NOT NULL,
+    start_cursor TEXT NOT NULL,
+    last_cursor TEXT
+);
+
 CREATE TABLE IF NOT EXISTS tweet_index (
     rest_id VARCHAR(20) PRIMARY KEY,
     conversation_id VARCHAR(20) NOT NULL,
@@ -10,7 +20,9 @@ CREATE TABLE IF NOT EXISTS tweet_index (
     important BOOLEAN NOT NULL DEFAULT False,
     archived BOOLEAN NOT NULL DEFAULT False,
     expanded BOOLEAN NOT NULL DEFAULT False,
-    source_json JSONB NOT NULL
+    source_json JSONB NOT NULL,
+    fetch_id INTEGER NOT NULL,
+    FOREIGN KEY (fetch_id) REFERENCES fetches(id)
 );
 
 CREATE TABLE IF NOT EXISTS tweets (

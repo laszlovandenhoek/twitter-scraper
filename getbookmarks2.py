@@ -198,7 +198,6 @@ def ellipsize(text: str) -> str:
 def find_timeline_start(
     fetch_fn: Callable[[Optional[TimelineTimelineCursor]], ResponseType],
     cursor: Optional[TimelineTimelineCursor] = None,
-    top_tweet: Optional[Tweet] = None,
 ) -> Tuple[TimelineTimelineCursor, Optional[Tweet]]:
     """
     Finds the start of the timeline and returns the cursor and the first tweet (if it exists).
@@ -216,18 +215,25 @@ def find_timeline_start(
     if len(response.data.data) == 0:
         # Top found, return as starting point
         print(
-            f"\t\t\tTop found, returning bottom cursor {response.data.cursor.bottom.value}"
-        )
-        return response.data.cursor.bottom, top_tweet
-    else:
-        # Scroll further up
-        print(
-            f"\t\t\tTop not found, scrolling further up to {response.data.cursor.top.value}"
+            f"\t\t\tEmpty top found, scrolling back down to {response.data.cursor.bottom.value}"
         )
         return find_timeline_start(
             fetch_fn,
-            cursor=response.data.cursor.top,
-            top_tweet=response.data.data[0].tweet,
+            cursor = response.data.cursor.bottom
+        )
+    elif len(response.data.data) == 1:
+        print(
+            f"\t\t\tSingle top found, returning top tweet {response.data.data[0].tweet.rest_id}"
+        )
+        return cursor, response.data.data[0].tweet
+    else:
+        # Scroll further up
+        print(
+            f"\t\t\tSomewhere in the middle, scrolling further up to {response.data.cursor.top.value}"
+        )
+        return find_timeline_start(
+            fetch_fn,
+            cursor=response.data.cursor.top
         )
 
 

@@ -1,7 +1,8 @@
 import json
+import sys
+from itertools import chain
 from typing import Callable, Iterable, List, Optional, Set, Tuple
 from pathlib import Path
-from pydantic_core import ValidationError
 from twitter_openapi_python import (
     CursorType,
     TimelineAddEntry,
@@ -103,30 +104,43 @@ def get_tweet_detail(
     )
 
 
-def should_stop_after_tweet(conn: psycopg2.extensions.connection, tweet: Tweet, current_fetch_id: Optional[int] = None) -> bool:
+def should_stop_after_tweet(
+    conn: psycopg2.extensions.connection,
+    tweet: Tweet,
+    current_fetch_id: Optional[int] = None,
+) -> bool:
     rest_id = tweet.rest_id
 
-    if (tweet.legacy.bookmarked == tweet.legacy.favorited):
-        print(f"tweet {rest_id} has bookmarked and liked set to the same value, going to pretend it's not in the index to prevent edge cases")
+    # this will not stop at tweets that were fetched earlier, but as part of a different list
+    if tweet.legacy.bookmarked == tweet.legacy.favorited:
+        print(
+            f"tweet {rest_id} has bookmarked and liked set to the same value, going to pretend it's not in the index to prevent edge cases"
+        )
         return False
 
     with conn.cursor() as c:
-        # this will skip over tweets that were included as part of a different list
         if current_fetch_id is not None:
             c.execute(
-                "SELECT fetched_at, fetch_id FROM tweet_index WHERE rest_id = %s AND ((bookmarked != liked) AND fetch_id != %s)",
-                    (rest_id, current_fetch_id),
-                )
+                "SELECT fetched_at, fetch_id FROM tweet_index WHERE rest_id = %s AND bookmarked = %s and liked = %s AND fetch_id != %s",
+                (
+                    rest_id,
+                    tweet.legacy.bookmarked,
+                    tweet.legacy.favorited,
+                    current_fetch_id,
+                ),
+            )
         else:
             c.execute(
-                "SELECT fetched_at, fetch_id FROM tweet_index WHERE rest_id = %s AND ((bookmarked != liked))",
-                (rest_id,),
+                "SELECT fetched_at, fetch_id FROM tweet_index WHERE rest_id = %s AND bookmarked = %s and liked = %s",
+                (rest_id, tweet.legacy.bookmarked, tweet.legacy.favorited),
             )
-        
+
         row = c.fetchone()
 
         if row is not None:
-            print(f"Tweet {rest_id} already exists in the index, fetched at {row[0]} from fetch {row[1]}")
+            print(
+                f"Tweet {rest_id} already exists in the index, fetched at {row[0]} from fetch {row[1]}"
+            )
             return True
         else:
             return False
@@ -195,112 +209,122 @@ def ellipsize(text: str) -> str:
     return text[:max_length] + "…" if len(text) > max_length else text
 
 
-def find_timeline_start(
-    fetch_fn: Callable[[Optional[TimelineTimelineCursor]], ResponseType],
-    cursor: Optional[TimelineTimelineCursor] = None,
-) -> Tuple[TimelineTimelineCursor, Optional[Tweet]]:
-    """
-    Finds the start of the timeline and returns the cursor and the first tweet (if it exists).
-    """
-    print(
-        f"\t\tLooking for timeline start at {cursor.value if cursor is not None else None}"
-    )
-
-    try:
-        response: ResponseType = fetch_fn(cursor)
-    except ValidationError as e:
-        print(f"Error fetching timeline start: {e}")
-        raise e
-
-    if len(response.data.data) == 0:
-        # Top found, return as starting point
-        print(
-            f"\t\t\tEmpty top found, scrolling back down to {response.data.cursor.bottom.value}"
-        )
-        return find_timeline_start(
-            fetch_fn,
-            cursor = response.data.cursor.bottom
-        )
-    elif len(response.data.data) == 1:
-        print(
-            f"\t\t\tSingle top found, returning top tweet {response.data.data[0].tweet.rest_id}"
-        )
-        return cursor, response.data.data[0].tweet
-    else:
-        # Scroll further up
-        print(
-            f"\t\t\tSomewhere in the middle, scrolling further up to {response.data.cursor.top.value}"
-        )
-        return find_timeline_start(
-            fetch_fn,
-            cursor=response.data.cursor.top
-        )
-
-
 def paginate(
-    conn: psycopg2.extensions.connection,
-    fetch_fn: Callable[[Optional[TimelineTimelineCursor]], ResponseType],
-    cursor: TimelineTimelineCursor,
-    current_fetch_id: int,
-) -> Iterable[Tuple[str, TimelineAddEntry, TweetApiUtilsData]]:
+    fetch_fn: Callable[[TimelineTimelineCursor | None], ResponseType],
+    stop_fn: Callable[
+        [Tweet], bool
+    ] = lambda x: False,  # by default, don't stop until we reach the end
+    cursor: TimelineTimelineCursor | None = None,
+    direction: CursorType = CursorType.BOTTOM,
+) -> Iterable[Tuple[TimelineTimelineCursor, TimelineAddEntry, TweetApiUtilsData]]:
     response: ResponseType = fetch_fn(cursor)
 
     # Get the raw entries that contain sort_index
     raw_entries: List[TimelineAddEntry] = response.data.raw.entry
 
     if len(response.data.data) == 0:
-        print("End of timeline reached")
+        print(f"{direction.value} reached")
         return
 
-    # You'll need to correlate these with your tweet data
-    # The entries are in the same order as the processed tweets
+    if direction == CursorType.TOP:
+        yield from paginate(fetch_fn, stop_fn, response.data.cursor.top, direction)
+
+    # Correlate TimelineAddEntry with TweetApiUtilsData
     for i, tweet_data in enumerate(response.data.data):
         timeline_item = raw_entries[i]
 
         # Check if this tweet already exists in the database
-        if should_stop_after_tweet(conn, tweet_data.tweet, current_fetch_id):
+        if stop_fn(tweet_data.tweet):
             print(f"Stopping fetch after existing tweet {tweet_data.tweet.rest_id}")
             return
 
-        yield cursor.value, timeline_item, tweet_data
+        yield cursor, timeline_item, tweet_data
 
-    yield from paginate(conn, fetch_fn, response.data.cursor.bottom, current_fetch_id)
+    if direction == CursorType.BOTTOM:
+        yield from paginate(fetch_fn, stop_fn, response.data.cursor.bottom, direction)
 
 
 def expand_tweet(
-    tweet_id: str, conn: psycopg2.extensions.connection, alt_paths: Set[str] = set()
+    conn: psycopg2.extensions.connection,
+    tweet_api: TweetApiUtils,
+    tweet_id: str,
+    anchor_rest_id: str | None = None,
 ) -> bool:
-    # Start a transaction
-    conn.autocommit = False
+    if anchor_rest_id is None:
+        anchor_rest_id = tweet_id
 
-    tweet_detail_response: ResponseType = get_tweet_detail(tweet_api, tweet_id)
+    print(f"expanding tweet {tweet_id} with anchor_rest_id {anchor_rest_id}")
 
-    top = tweet_detail_response.data.cursor.top
-    if top is not None:
-        print("TODO: implement top cursor")
-        conn.rollback()
+    def get_tweet_detail_from_cursor(
+        cursor: TimelineTimelineCursor | None = None,
+    ) -> ResponseType:
+        return get_tweet_detail(tweet_api, tweet_id, cursor)
+
+    def dont_stop(tweet: Tweet) -> bool:
         return False
 
-    bottom = tweet_detail_response.data.cursor.bottom
-    if bottom is not None:
-        print("TODO: implement bottom cursor")
-        conn.rollback()
-        return False
+    initial_response: ResponseType = get_tweet_detail_from_cursor(None)
+    from_top_until_here: Iterable[
+        Tuple[TimelineTimelineCursor, TimelineAddEntry, TweetApiUtilsData]
+    ] = (
+        iter([])
+        if initial_response.data.cursor.top is None
+        else paginate(
+            get_tweet_detail_from_cursor,
+            dont_stop,
+            initial_response.data.cursor.top,
+            CursorType.TOP,
+        )
+    )
+    from_here_until_bottom: Iterable[
+        Tuple[TimelineTimelineCursor, TimelineAddEntry, TweetApiUtilsData]
+    ] = (
+        iter([])
+        if initial_response.data.cursor.bottom is None
+        else paginate(
+            get_tweet_detail_from_cursor,
+            dont_stop,
+            initial_response.data.cursor.bottom,
+            CursorType.BOTTOM,
+        )
+    )
 
-    thread_author_user_id = tweet_detail_response.data.data[0].tweet.legacy.user_id_str
+    initial_page_as_paginated: Iterable[
+        Tuple[TimelineTimelineCursor, TimelineAddEntry, TweetApiUtilsData]
+    ] = [
+        ("", entry, data)
+        for entry, data in zip(
+            initial_response.data.raw.entry, initial_response.data.data
+        )
+    ]
 
-    # Get the raw entries that contain sort_index
-    raw_entries: List[TimelineAddEntry] = tweet_detail_response.data.raw.entry
+    all_tweet_data: Iterable[Tuple[TimelineTimelineCursor, TimelineAddEntry, TweetApiUtilsData]] = chain(
+        from_top_until_here, initial_page_as_paginated, from_here_until_bottom
+    )
 
-    # You'll need to correlate these with your tweet data
-    # The entries are in the same order as the processed tweets
-    for i, tweet_data in enumerate(tweet_detail_response.data.data):
-        sort_index = raw_entries[i].sort_index
+    author_of_first_tweet = None
+
+    # all_tweet_data: list[Tuple[TimelineTimelineCursor, TimelineAddEntry, TweetApiUtilsData]] = list(all_tweet_data)
+
+    for _, timeline_add_entry, tweet_data in all_tweet_data:
+        print(tweet_data.tweet.rest_id)
+        if author_of_first_tweet is None:
+            author_of_first_tweet = tweet_data.user.rest_id
+
+        if tweet_data.promoted_metadata is not None:
+            # skip promoted tweets
+            print(f"skipping promoted tweet {tweet_data.tweet.rest_id}")
+            continue
+
+        in_reply_to_status_id_str = tweet_data.tweet.legacy.in_reply_to_status_id_str
+        in_reply_to_user_id_str = tweet_data.tweet.legacy.in_reply_to_user_id_str
+
+        sort_index = timeline_add_entry.sort_index
 
         rest_id = tweet_data.tweet.rest_id
         replies = tweet_data.replies
-        quoted = tweet_data.quoted
 
+        quoted = tweet_data.quoted
         if quoted is not None:
             print("TODO: implement quoted")
             conn.rollback()
@@ -314,42 +338,96 @@ def expand_tweet(
 
         conversation_id = tweet_data.tweet.legacy.conversation_id_str
 
-        # rest_id = tweet['rest_id']
-        # sort_index = entry['sortIndex']
-        # user_id = tweet['core']['user_results']['result']['rest_id']
-        # screen_name = tweet['core']['user_results']['result']['legacy']['screen_name']
-        # created_at = tweet['legacy']['created_at']
-        # full_text = tweet['legacy']['full_text']
-        # bookmarked = tweet['legacy'].get('bookmarked', False)
-        # liked = tweet['legacy'].get('favorited', False)
+        user_id = tweet_data.user.rest_id
+        screen_name = tweet_data.user.legacy.screen_name
+        created_at = tweet_data.tweet.legacy.created_at
+        full_text = tweet_data.tweet.legacy.full_text
+        bookmarked = tweet_data.tweet.legacy.bookmarked
+        liked = tweet_data.tweet.legacy.favorited
 
         print(f"rest_id: {rest_id}")
+        print(f"\tuser_id: {user_id}")
+        print(f"\tscreen_name: {screen_name}")
+        print(f"\tcreated_at: {created_at}")
         print(f"\tsort_index: {sort_index}")
-        print(f"\ttext: {ellipsize(tweet_data.tweet.legacy.full_text)}")
+        print(f"\ttext: {ellipsize(full_text)}")
+        print(f"\tbookmarked: {bookmarked}")
+        print(f"\tliked: {liked}")
         print(f"\tconversation_id: {conversation_id}")
+        print(f"\tin_reply_to_status_id_str: {in_reply_to_status_id_str}")
+
+        save_tweet(
+            conn, sort_index, tweet_data, anchor_rest_id, timeline_add_entry.to_json()
+        )
 
         for reply in replies:
-            if reply.user.rest_id == thread_author_user_id:
-                if reply.tweet.rest_id in alt_paths:
-                    print("thread fork cycle, bailing out")
-                    return False
-                else:
-                    print(f"thread fork, expanding {reply.tweet.rest_id} instead")
-                    earlier_items = [
-                        item.tweet.rest_id for item in tweet_detail_response.data.data
-                    ]
-                    conn.rollback()
-                    return expand_tweet(
-                        reply.tweet.rest_id, conn, set(earlier_items).union(alt_paths)
-                    )
             print(
                 f"\treply: {reply.tweet.rest_id} in reply to {reply.tweet.legacy.in_reply_to_status_id_str}"
             )
             print(f"\t\ttext: {ellipsize(reply.tweet.legacy.full_text)}")
 
-    # after all replies are processed, mark the tweet as expanded.
-    mark_tweet_as_expanded(rest_id, conn)
-    conn.commit()
+            save_tweet(conn, sort_index, reply, anchor_rest_id)
+
+            if (
+                reply.user.rest_id == author_of_first_tweet
+                or reply.user.rest_id == in_reply_to_user_id_str
+            ):
+                print(
+                    f"\tthread continues with {reply.tweet.rest_id}, expanding that too"
+                )
+                success = expand_tweet(
+                    conn, tweet_api, reply.tweet.rest_id, anchor_rest_id
+                )
+                if not success:
+                    print(f"Failed to expand reply tweet {reply.tweet.rest_id}")
+                    return False
+
+    print(
+        f"Tweet {tweet_id} expanded successfully with anchor_rest_id {anchor_rest_id}"
+    )
+    return True
+
+
+def save_tweet(
+    conn: psycopg2.extensions.connection,
+    sort_index: str,
+    tweet_data: TweetApiUtilsData,
+    anchor_rest_id: str,
+    source_json: str = "{}",
+):
+    columns = [
+        "anchor_rest_id",
+        "conversation_id",
+        "rest_id",
+        "sort_index",
+        "user_id",
+        "screen_name",
+        "created_at",
+        "full_text",
+        "bookmarked",
+        "liked",
+        "source_json",
+    ]
+    placeholders = ", ".join(["%s"] * len(columns))
+    query = f"INSERT INTO tweets ({', '.join(columns)}) VALUES ({placeholders}) ON CONFLICT (anchor_rest_id, rest_id) DO UPDATE SET {', '.join([f'{column} = EXCLUDED.{column}' for column in columns])}"
+
+    with conn.cursor() as c:
+        c.execute(
+            query,
+            (
+                anchor_rest_id,
+                tweet_data.tweet.legacy.conversation_id_str,
+                tweet_data.tweet.rest_id,
+                sort_index,
+                tweet_data.tweet.legacy.user_id_str,
+                tweet_data.user.legacy.screen_name,
+                tweet_data.tweet.legacy.created_at,
+                tweet_data.tweet.legacy.full_text,
+                tweet_data.tweet.legacy.bookmarked,
+                tweet_data.tweet.legacy.favorited,
+                source_json,
+            ),
+        )
 
 
 def get_unexpanded_tweet_ids(conn: psycopg2.extensions.connection) -> Iterable[str]:
@@ -394,7 +472,6 @@ def create_fetch(
     conn: psycopg2.extensions.connection,
     is_likes: bool,
     is_bookmarks: bool,
-    start_cursor: str,
 ) -> int:
     """
     Starts a new fetch operation and returns the fetch ID.
@@ -403,7 +480,6 @@ def create_fetch(
         conn: Database connection
         is_likes: Whether this fetch is for likes
         is_bookmarks: Whether this fetch is for bookmarks
-        start_cursor: The starting cursor for the fetch
 
     Returns:
         int: The fetch ID
@@ -411,14 +487,14 @@ def create_fetch(
     with conn.cursor() as c:
         c.execute(
             """
-            INSERT INTO fetches (is_likes, is_bookmarks, start_cursor)
+            INSERT INTO fetches (is_likes, is_bookmarks)
             VALUES (%s, %s, %s)
             RETURNING id
         """,
-            (is_likes, is_bookmarks, start_cursor),
+            (is_likes, is_bookmarks),
         )
         fetch_id = c.fetchone()[0]
-    
+
     return fetch_id
 
 
@@ -505,15 +581,19 @@ def process_fetch(
             else None
         )
 
+        def stop_fn(tweet: Tweet) -> bool:
+            return should_stop_after_tweet(conn, tweet, fetch_id)
+
         # Fetch tweets with progress tracking - paginate will stop when it finds existing tweets from a previous fetch
         for tweet_cursor, timeline_add_entry, tweet_data in paginate(
-            conn, fetch_fn, cursor, fetch_id
+            fetch_fn, stop_fn, cursor
         ):
-
-            print(f"Processing tweet {tweet_data.tweet.rest_id} from fetch {fetch_id} at cursor {tweet_cursor}")
+            print(
+                f"Processing tweet {tweet_data.tweet.rest_id} from fetch {fetch_id} at cursor {tweet_cursor.value if tweet_cursor is not None else None}"
+            )
 
             # Update the fetch cursor as we progress
-            update_fetch_cursor(conn, fetch_id, tweet_cursor)
+            update_fetch_cursor(conn, fetch_id, tweet_cursor.value)
 
             # Save the tweet with the fetch ID
             save_index_tweet(timeline_add_entry, tweet_data, conn, fetch_id)
@@ -536,36 +616,26 @@ def create_new_fetches(
     """
     Creates new fetches and processes them, as well as incomplete fetches, in chronological order.
     """
-    for fetch_type in ["likes", "bookmarks"]:
-        # Find the proper starting cursor from the timeline
-        print(f"\tFinding timeline start for {fetch_type}...")
-        start_cursor, top_tweet = find_timeline_start(
-            get_likes if fetch_type == "likes" else get_bookmarks
+    for fetch_type in ["likes", "bookmarks"]:  # TODO: make fetch_type an enum
+        print(f"\t getting first {fetch_type} page...")
+        tweets: Iterable[
+            Tuple[TimelineTimelineCursor, TimelineAddEntry, TweetApiUtilsData]
+        ] = paginate(
+            fetch_fn=get_likes if fetch_type == "likes" else get_bookmarks,
+            stop_fn=lambda x: should_stop_after_tweet(conn, x),
         )
-        if top_tweet:
-            print(f"\t\tFound timeline start cursor: {start_cursor.value}, first tweet: {top_tweet.rest_id}")
+
+        _, _, first_tweet = next(tweets, (None, None, None))
+
+        if not first_tweet:
+            print(f"\t\tNo new tweets found, not creating new fetch for {fetch_type}")
+            continue
+
         else:
-            print(f"\t\tNo first tweet found, skipping {fetch_type}")
-            continue
-
-        if should_stop_after_tweet(conn, top_tweet):
-            print(f"\t\t\tFirst tweet is already in the index, skipping {fetch_type}")
-            continue
-
-        with conn.cursor() as c:
-            c.execute(
-                "SELECT id, finished_at FROM fetches WHERE finished_at is not null and is_likes = %s AND is_bookmarks = %s AND start_cursor = %s and last_cursor = %s",
-                (fetch_type == "likes", fetch_type == "bookmarks", start_cursor.value, start_cursor.value),
-            )
-            previous_fetch = c.fetchone()
-            if previous_fetch:
-                print(f"\t\tPreviously completed fetch {previous_fetch[0]} already started at cursor {start_cursor.value} at {previous_fetch[1]}, skipping {fetch_type}")
-                continue
+            print(f"\t\tTimeline starts with new tweet: {first_tweet.rest_id}")
 
         # Start a new fetch with the proper cursor
-        fetch_id = create_fetch(
-            conn, fetch_type == "likes", fetch_type == "bookmarks", start_cursor.value
-        )
+        fetch_id = create_fetch(conn, fetch_type == "likes", fetch_type == "bookmarks")
         print(f"\t\tCreated new {fetch_type} fetch {fetch_id}")
 
 
@@ -588,10 +658,8 @@ def run_fetches(
         fetch_id,
         fetch_is_likes,
         fetch_is_bookmarks,
-        start_cursor,
         last_cursor,
     ) in unfinished_fetches:
-        effective_cursor = last_cursor if last_cursor else start_cursor
         fetch_type = (
             "Likes"
             if fetch_is_likes
@@ -600,9 +668,7 @@ def run_fetches(
             else "Unknown"
         )
 
-        print(
-            f"\t\t{'Resuming' if last_cursor else 'Starting'} {fetch_type} fetch {fetch_id} from cursor {effective_cursor}"
-        )
+        print(f"\t\tStarting {fetch_type} fetch {fetch_id} from cursor {last_cursor}")
 
         if fetch_is_likes:
             fetch_fn = get_likes
@@ -611,7 +677,7 @@ def run_fetches(
         else:
             raise ValueError(f"Invalid fetch type for fetch {fetch_id}")
 
-        process_fetch(conn, fetch_id, effective_cursor, fetch_fn)
+        process_fetch(conn, fetch_id, last_cursor, fetch_fn)
 
     print("\tSuccessfully processed fetches")
 
@@ -656,24 +722,43 @@ def fetch_all(
 
 if __name__ == "__main__":
     conn = initialize_database()
+    # client = get_client("http://localhost:8000")
     client = get_client()
     tweet_api = client.get_tweet_api()
 
     conn.autocommit = True
 
     # Process all fetches for likes and bookmarks
-    print("Fetching...")
-    fetch_all(conn, tweet_api, "117787606")
+    # print("Fetching...")
+    # fetch_all(conn, tweet_api, "117787606")
 
-    # Example usage of the lazy fetch method
+    conn.autocommit = False
+
+    # expand_tweet(conn, tweet_api, "1962836452611629512")
+    # expand_tweet(conn, tweet_api, "775730673420111872")
+    expand_tweet(conn, tweet_api, "1628567045800591361")
+    # expand_tweet(conn, tweet_api, "1860347907615924669")
+    # expand_tweet(conn, tweet_api, "1452963540407668745")
+    conn.commit()
+
+    sys.exit(0)
+
+    # Start a transaction
+
     unexpanded_tweets = get_unexpanded_tweet_ids(conn)
     for rest_id in unexpanded_tweets:
-        # print(f"Processing unexpanded tweet: {rest_id}")
-        # Here you would call expand_tweet(rest_id, conn) or similar
-        # mark_tweet_as_expanded(rest_id, conn)
-        pass
+        print(f"Processing unexpanded tweet: {rest_id}")
 
-    # expand_tweet("775730673420111872", conn)
-    # expand_tweet("1628567045800591361", conn)
-    # expand_tweet("1860347907615924669", conn)
-    # expand_tweet("1452963540407668745", conn)
+        if expand_tweet(conn, tweet_api, rest_id):
+            # after all replies are processed, mark the tweet as expanded.
+            mark_tweet_as_expanded(rest_id, conn)
+            conn.commit()
+
+            print(f"Expanded tweet: {rest_id}")
+            print("breaking for now")
+            break
+
+        else:
+            print(f"Failed to expand tweet: {rest_id}")
+            break
+

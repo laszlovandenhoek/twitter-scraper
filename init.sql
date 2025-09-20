@@ -4,7 +4,6 @@ CREATE TABLE IF NOT EXISTS fetches (
     finished_at TIMESTAMP,
     is_likes BOOLEAN NOT NULL,
     is_bookmarks BOOLEAN NOT NULL,
-    start_cursor TEXT NOT NULL,
     last_cursor TEXT
 );
 

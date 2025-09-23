@@ -44,12 +44,11 @@ CREATE TABLE IF NOT EXISTS tweets (
 CREATE TABLE IF NOT EXISTS retweets (
     anchor_rest_id VARCHAR(20) NOT NULL,
     rest_id VARCHAR(20) NOT NULL,
-    retweet_anchor_rest_id VARCHAR(20) NOT NULL,
     retweet_rest_id VARCHAR(20) NOT NULL,
     is_quote BOOLEAN NOT NULL,
-    PRIMARY KEY (anchor_rest_id, rest_id, retweet_anchor_rest_id, retweet_rest_id),
+    PRIMARY KEY (anchor_rest_id, rest_id),
     FOREIGN KEY (anchor_rest_id, rest_id) REFERENCES tweets(anchor_rest_id, rest_id),
-    FOREIGN KEY (retweet_anchor_rest_id, retweet_rest_id) REFERENCES tweets(anchor_rest_id, rest_id)
+    FOREIGN KEY (anchor_rest_id, retweet_rest_id) REFERENCES tweets(anchor_rest_id, rest_id)
 );
 
 CREATE TABLE IF NOT EXISTS categories (

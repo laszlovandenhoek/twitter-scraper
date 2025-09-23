@@ -1,6 +1,8 @@
 import json
 import sys
 from itertools import chain
+import time
+from time import sleep
 from typing import Callable, Iterable, List, Optional, Set, Tuple
 from pathlib import Path
 from twitter_openapi_python import (
@@ -70,38 +72,65 @@ def get_client(endpoint: Optional[str] = None):
 
     return client
 
+def determine_next_sleep(response: ResponseType):
+    remaining = response.header.rate_limit_remaining
+
+    if remaining <= 10:
+        time_left: float = response.header.rate_limit_reset - time.time()
+        time_per_request = time_left / remaining
+        wait_time = time_per_request + 10
+    else:
+        wait_time = 1
+    return wait_time
+
+next_sleep: float = 0
 
 def get_likes(
     api: TweetApiUtils, user_id: str, cursor: Optional[TimelineTimelineCursor] = None
 ) -> ResponseType:
+    global next_sleep
     print(
-        f"\t\t\tgetting likes for user {user_id} with cursor {cursor.value if cursor is not None else None}"
+        f"\t\t\tgetting likes for user {user_id} with cursor {cursor.value if cursor is not None else None} (in {next_sleep}s)"
     )
-    return api.get_likes(
+    sleep(next_sleep)
+    response = api.get_likes(
         user_id=user_id, count=20, cursor=cursor.value if cursor is not None else None
     )
+
+    next_sleep = determine_next_sleep(response)
+    return response
 
 
 def get_bookmarks(
     api: TweetApiUtils, cursor: Optional[TimelineTimelineCursor] = None
 ) -> ResponseType:
+    global next_sleep
     print(
-        f"\t\t\tgetting bookmarks with cursor {cursor.value if cursor is not None else None}"
+        f"\t\t\tgetting bookmarks with cursor {cursor.value if cursor is not None else None} (in {next_sleep}s)"
     )
-    return api.get_bookmarks(
+    sleep(next_sleep)
+    response = api.get_bookmarks(
         count=20, cursor=cursor.value if cursor is not None else None
     )
+    next_sleep = determine_next_sleep(response)
+    return response
 
 
 def get_tweet_detail(
     api: TweetApiUtils, tweet_id: str, cursor: Optional[TimelineTimelineCursor] = None
 ) -> ResponseType:
+    global next_sleep
     print(
-        f"getting tweet detail for tweet {tweet_id} with cursor {cursor.value if cursor is not None else None}"
+        f"getting details for tweet {tweet_id} {cursor.cursor_type if cursor is not None else "vanilla"} (in {next_sleep}s)"
     )
-    return api.get_tweet_detail(
+    sleep(next_sleep)
+
+    response = api.get_tweet_detail(
         focal_tweet_id=tweet_id, cursor=cursor.value if cursor is not None else None
     )
+
+    next_sleep = determine_next_sleep(response)
+    return response
 
 
 def should_stop_after_tweet(
@@ -227,18 +256,44 @@ def paginate(
         return
 
     if direction == CursorType.TOP:
-        yield from paginate(fetch_fn, stop_fn, response.data.cursor.top, direction)
+        # For upward pagination, we need to apply stop_fn in reverse order
+        # First, scan current page's tweets in reverse order to find stop point
+        tweets_to_yield = []
+        should_continue_pagination = True
+        
+        # Process tweets in reverse order to find where to stop
+        for i in range(len(response.data.data) - 1, -1, -1):
+            tweet_data = response.data.data[i]
+            timeline_item = raw_entries[i]
+            
+            if stop_fn(tweet_data.tweet):
+                print(f"Stopping fetch after tweet {tweet_data.tweet.rest_id} (found in upward pagination)")
+                should_continue_pagination = False
+                break
+            
+            # Add to front of list to maintain original order
+            tweets_to_yield.insert(0, (cursor, timeline_item, tweet_data))
+        
+        # Only continue pagination if no stop condition was found on current page
+        if should_continue_pagination and response.data.cursor.top is not None:
+            # Recursively get tweets from further up
+            yield from paginate(fetch_fn, stop_fn, response.data.cursor.top, direction)
+        
+        # Yield tweets in original order
+        for tweet_tuple in tweets_to_yield:
+            yield tweet_tuple
 
-    # Correlate TimelineAddEntry with TweetApiUtilsData
-    for i, tweet_data in enumerate(response.data.data):
-        timeline_item = raw_entries[i]
+    # Correlate TimelineAddEntry with TweetApiUtilsData (only for BOTTOM direction)
+    if direction == CursorType.BOTTOM:
+        for i, tweet_data in enumerate(response.data.data):
+            timeline_item = raw_entries[i]
 
-        # Check if this tweet already exists in the database
-        if stop_fn(tweet_data.tweet):
-            print(f"Stopping fetch after existing tweet {tweet_data.tweet.rest_id}")
-            return
+            # Check if we should stop at this tweet
+            if stop_fn(tweet_data.tweet):
+                print(f"Stopping fetch after tweet {tweet_data.tweet.rest_id}")
+                return
 
-        yield cursor, timeline_item, tweet_data
+            yield cursor, timeline_item, tweet_data
 
     if direction == CursorType.BOTTOM:
         yield from paginate(fetch_fn, stop_fn, response.data.cursor.bottom, direction)
@@ -248,22 +303,32 @@ def expand_tweet(
     conn: psycopg2.extensions.connection,
     tweet_api: TweetApiUtils,
     tweet_id: str,
+    previously_expanded_tweet_ids: Set[str] = set(),
     anchor_rest_id: str | None = None,
-) -> bool:
+    quote_depth: int = 0,
+) -> Set[str]:
     if anchor_rest_id is None:
         anchor_rest_id = tweet_id
 
-    print(f"expanding tweet {tweet_id} with anchor_rest_id {anchor_rest_id}")
+    print(f"expanding tweet {tweet_id} with anchor_rest_id {anchor_rest_id} at quote depth {quote_depth}")
 
     def get_tweet_detail_from_cursor(
         cursor: TimelineTimelineCursor | None = None,
     ) -> ResponseType:
         return get_tweet_detail(tweet_api, tweet_id, cursor)
 
-    def dont_stop(tweet: Tweet) -> bool:
-        return False
-
     initial_response: ResponseType = get_tweet_detail_from_cursor(None)
+
+    # get all user_id_str and in_reply_to_user_id_str from the initial response
+    significant_users: Set[str] = set()
+    for tweet_data in initial_response.data.data:
+        significant_users.add(tweet_data.user.rest_id)
+        if tweet_data.tweet.legacy.in_reply_to_user_id_str is not None:
+            significant_users.add(tweet_data.tweet.legacy.in_reply_to_user_id_str)
+
+    def stop_on_insignificant_user(tweet: Tweet) -> bool:
+        return tweet.legacy.user_id_str not in significant_users
+
     from_top_until_here: Iterable[
         Tuple[TimelineTimelineCursor, TimelineAddEntry, TweetApiUtilsData]
     ] = (
@@ -271,7 +336,7 @@ def expand_tweet(
         if initial_response.data.cursor.top is None
         else paginate(
             get_tweet_detail_from_cursor,
-            dont_stop,
+            lambda tweet: tweet.rest_id in previously_expanded_tweet_ids,
             initial_response.data.cursor.top,
             CursorType.TOP,
         )
@@ -283,7 +348,7 @@ def expand_tweet(
         if initial_response.data.cursor.bottom is None
         else paginate(
             get_tweet_detail_from_cursor,
-            dont_stop,
+            stop_on_insignificant_user,
             initial_response.data.cursor.bottom,
             CursorType.BOTTOM,
         )
@@ -298,16 +363,17 @@ def expand_tweet(
         )
     ]
 
-    all_tweet_data: Iterable[Tuple[TimelineTimelineCursor, TimelineAddEntry, TweetApiUtilsData]] = chain(
-        from_top_until_here, initial_page_as_paginated, from_here_until_bottom
-    )
+    all_tweet_data: Iterable[
+        Tuple[TimelineTimelineCursor, TimelineAddEntry, TweetApiUtilsData]
+    ] = chain(from_top_until_here, initial_page_as_paginated, from_here_until_bottom)
+
+    replies_to_expand: Set[str] = set()
+
+    newly_expanded_tweet_ids: Set[str] = set()
 
     author_of_first_tweet = None
 
-    # all_tweet_data: list[Tuple[TimelineTimelineCursor, TimelineAddEntry, TweetApiUtilsData]] = list(all_tweet_data)
-
     for _, timeline_add_entry, tweet_data in all_tweet_data:
-        print(tweet_data.tweet.rest_id)
         if author_of_first_tweet is None:
             author_of_first_tweet = tweet_data.user.rest_id
 
@@ -324,17 +390,11 @@ def expand_tweet(
         rest_id = tweet_data.tweet.rest_id
         replies = tweet_data.replies
 
-        quoted = tweet_data.quoted
-        if quoted is not None:
-            print("TODO: implement quoted")
-            conn.rollback()
-            return False
-
         retweeted = tweet_data.retweeted
+
         if retweeted is not None:
             print("TODO: implement retweeted")
-            conn.rollback()
-            return False
+            raise NotImplementedError("retweeted not implemented")
 
         conversation_id = tweet_data.tweet.legacy.conversation_id_str
 
@@ -345,47 +405,82 @@ def expand_tweet(
         bookmarked = tweet_data.tweet.legacy.bookmarked
         liked = tweet_data.tweet.legacy.favorited
 
-        print(f"rest_id: {rest_id}")
-        print(f"\tuser_id: {user_id}")
-        print(f"\tscreen_name: {screen_name}")
-        print(f"\tcreated_at: {created_at}")
-        print(f"\tsort_index: {sort_index}")
-        print(f"\ttext: {ellipsize(full_text)}")
-        print(f"\tbookmarked: {bookmarked}")
-        print(f"\tliked: {liked}")
-        print(f"\tconversation_id: {conversation_id}")
-        print(f"\tin_reply_to_status_id_str: {in_reply_to_status_id_str}")
+        print(f"tweet {rest_id} by {screen_name}: {ellipsize(full_text)}")
 
         save_tweet(
             conn, sort_index, tweet_data, anchor_rest_id, timeline_add_entry.to_json()
         )
 
+        newly_expanded_tweet_ids.add(rest_id)
+
+        quoted = tweet_data.quoted
+        if quoted is not None:
+            if quote_depth > 3:
+                print(f"Reached maximum quote depth of 3, not recursing into quoted tweet {quoted.tweet.rest_id}")
+            else:
+                # Recursively expand the quoted tweet to get its full conversation
+
+                if (quoted.tweet.rest_id in previously_expanded_tweet_ids.union(newly_expanded_tweet_ids)):
+                    print(f"\t\tQuoted tweet {quoted.tweet.rest_id} already saved or expanded, skipping")
+
+                else:
+                    print(f"\t\tExpanding quoted tweet {quoted.tweet.rest_id}")
+                    additionally_expanded_tweet_ids = expand_tweet(
+                        conn, tweet_api, quoted.tweet.rest_id, previously_expanded_tweet_ids.union(newly_expanded_tweet_ids), anchor_rest_id, quote_depth + 1
+                    )
+                    newly_expanded_tweet_ids.update(additionally_expanded_tweet_ids)
+
+                # Register the quote relationship in the retweets table, regardless of whether the quoted tweet was already expanded
+                save_retweet_relationship(
+                    conn,
+                    anchor_rest_id,
+                    rest_id,  # The quote tweet
+                    quoted.tweet.rest_id,  # The quoted tweet
+                    is_quote=True,
+                )
+
         for reply in replies:
             print(
-                f"\treply: {reply.tweet.rest_id} in reply to {reply.tweet.legacy.in_reply_to_status_id_str}"
+                f"\treply: {reply.tweet.rest_id} in reply to {reply.tweet.legacy.in_reply_to_status_id_str}: {ellipsize(reply.tweet.legacy.full_text)}"
             )
-            print(f"\t\ttext: {ellipsize(reply.tweet.legacy.full_text)}")
 
             save_tweet(conn, sort_index, reply, anchor_rest_id)
 
-            if (
-                reply.user.rest_id == author_of_first_tweet
-                or reply.user.rest_id == in_reply_to_user_id_str
-            ):
+            if reply.tweet.rest_id in previously_expanded_tweet_ids.union(newly_expanded_tweet_ids):
+                print(f"\t\tReply {reply.tweet.rest_id} already expanded, skipping")
+                continue
+
+            if reply.user.rest_id not in significant_users:
+                print(f"\t\tReply {reply.tweet.rest_id} is from an insignificant user, skipping")
+                continue
+            else:
                 print(
-                    f"\tthread continues with {reply.tweet.rest_id}, expanding that too"
+                    f"\t\t\tthread continues with {reply.tweet.rest_id}, expanding that too"
                 )
-                success = expand_tweet(
-                    conn, tweet_api, reply.tweet.rest_id, anchor_rest_id
-                )
-                if not success:
-                    print(f"Failed to expand reply tweet {reply.tweet.rest_id}")
-                    return False
+                replies_to_expand.add(reply.tweet.rest_id)
+
+                irt = reply.tweet.legacy.in_reply_to_status_id_str
+
+                print(f"\t\t\tTweet is in reply to {irt}, so not expanding that")
+                replies_to_expand.discard(irt)
+                replies_to_expand.add(reply.tweet.rest_id)
+
+    if (len(replies_to_expand) > 0):
+        print(f"\t\t{len(replies_to_expand)} replies to expand: {replies_to_expand}")
+
+    for reply_to_expand in replies_to_expand:
+        if reply_to_expand in previously_expanded_tweet_ids.union(newly_expanded_tweet_ids):
+            print(f"\t\t\tReply {reply_to_expand} already expanded, skipping")
+            continue
+
+        print(f"\t\t\tExpanding reply {reply_to_expand}")
+        additionally_expanded_tweet_ids = expand_tweet(conn, tweet_api, reply_to_expand, previously_expanded_tweet_ids.union(newly_expanded_tweet_ids), anchor_rest_id, quote_depth)
+        newly_expanded_tweet_ids.update(additionally_expanded_tweet_ids)
 
     print(
-        f"Tweet {tweet_id} expanded successfully with anchor_rest_id {anchor_rest_id}"
+        f"Tweet {tweet_id} expanded successfully with {len(newly_expanded_tweet_ids)} newly expanded tweet(s) with anchor_rest_id {anchor_rest_id}"
     )
-    return True
+    return newly_expanded_tweet_ids
 
 
 def save_tweet(
@@ -427,6 +522,40 @@ def save_tweet(
                 tweet_data.tweet.legacy.favorited,
                 source_json,
             ),
+        )
+
+
+def save_retweet_relationship(
+    conn: psycopg2.extensions.connection,
+    anchor_rest_id: str,
+    rest_id: str,
+    retweet_rest_id: str,
+    is_quote: bool,
+):
+    """
+    Saves a retweet/quote relationship in the retweets table.
+
+    Args:
+        conn: Database connection
+        anchor_rest_id: The anchor rest_id of the tweet that contains the retweet/quote
+        rest_id: The rest_id of the tweet that contains the retweet/quote
+        retweet_rest_id: The rest_id of the retweeted/quoted tweet
+        is_quote: True if this is a quote tweet, False if it's a retweet
+    """
+    with conn.cursor() as c:
+        c.execute(
+            """
+            INSERT INTO retweets (
+                anchor_rest_id,
+                rest_id,
+                retweet_rest_id,
+                is_quote
+            )
+            VALUES (%s, %s, %s, %s)
+            ON CONFLICT (anchor_rest_id, rest_id) 
+            DO NOTHING
+        """,
+            (anchor_rest_id, rest_id, retweet_rest_id, is_quote),
         )
 
 
@@ -488,7 +617,7 @@ def create_fetch(
         c.execute(
             """
             INSERT INTO fetches (is_likes, is_bookmarks)
-            VALUES (%s, %s, %s)
+            VALUES (%s, %s)
             RETURNING id
         """,
             (is_likes, is_bookmarks),
@@ -499,7 +628,7 @@ def create_fetch(
 
 
 def update_fetch_cursor(
-    conn: psycopg2.extensions.connection, fetch_id: int, cursor: str
+    conn: psycopg2.extensions.connection, fetch_id: int, cursor: TimelineTimelineCursor
 ):
     """
     Updates the last cursor for a fetch operation.
@@ -509,10 +638,10 @@ def update_fetch_cursor(
         fetch_id: The fetch ID to update
         cursor: The new cursor value
     """
-    print(f"Updating fetch {fetch_id} with cursor {cursor}")
+    print(f"Updating fetch {fetch_id} with cursor {cursor.value}")
     with conn.cursor() as c:
         c.execute(
-            "UPDATE fetches SET last_cursor = %s WHERE id = %s", (cursor, fetch_id)
+            "UPDATE fetches SET last_cursor = %s WHERE id = %s", (cursor.value, fetch_id)
         )
 
 
@@ -531,7 +660,7 @@ def finish_fetch(conn: psycopg2.extensions.connection, fetch_id: int):
 
 def get_fetches_worklist(
     conn: psycopg2.extensions.connection,
-) -> List[Tuple[int, bool, bool, str, Optional[str]]]:
+) -> List[Tuple[int, bool, bool, Optional[str]]]:
     """
     Gets all incomplete fetch operations in chronological order (oldest first).
 
@@ -539,11 +668,11 @@ def get_fetches_worklist(
         conn: Database connection
 
     Returns:
-        List of tuples: (fetch_id, is_likes, is_bookmarks, start_cursor, last_cursor)
+        List of tuples: (fetch_id, is_likes, is_bookmarks, last_cursor)
     """
     with conn.cursor() as c:
         c.execute("""
-            SELECT id, is_likes, is_bookmarks, start_cursor, last_cursor
+            SELECT id, is_likes, is_bookmarks, last_cursor
             FROM fetches
             WHERE finished_at IS NULL
             ORDER BY started_at ASC
@@ -592,8 +721,9 @@ def process_fetch(
                 f"Processing tweet {tweet_data.tweet.rest_id} from fetch {fetch_id} at cursor {tweet_cursor.value if tweet_cursor is not None else None}"
             )
 
-            # Update the fetch cursor as we progress
-            update_fetch_cursor(conn, fetch_id, tweet_cursor.value)
+            if tweet_cursor is not None:
+                # Update the fetch cursor as we progress
+                update_fetch_cursor(conn, fetch_id, tweet_cursor)
 
             # Save the tweet with the fetch ID
             save_index_tweet(timeline_add_entry, tweet_data, conn, fetch_id)
@@ -632,7 +762,7 @@ def create_new_fetches(
             continue
 
         else:
-            print(f"\t\tTimeline starts with new tweet: {first_tweet.rest_id}")
+            print(f"\t\tTimeline starts with new tweet: {first_tweet.tweet.rest_id}")
 
         # Start a new fetch with the proper cursor
         fetch_id = create_fetch(conn, fetch_type == "likes", fetch_type == "bookmarks")
@@ -729,36 +859,33 @@ if __name__ == "__main__":
     conn.autocommit = True
 
     # Process all fetches for likes and bookmarks
-    # print("Fetching...")
-    # fetch_all(conn, tweet_api, "117787606")
+    print("Fetching...")
+    fetch_all(conn, tweet_api, "117787606")
 
     conn.autocommit = False
 
     # expand_tweet(conn, tweet_api, "1962836452611629512")
     # expand_tweet(conn, tweet_api, "775730673420111872")
-    expand_tweet(conn, tweet_api, "1628567045800591361")
+    # expand_tweet(conn, tweet_api, "1628567045800591361")
     # expand_tweet(conn, tweet_api, "1860347907615924669")
     # expand_tweet(conn, tweet_api, "1452963540407668745")
-    conn.commit()
-
-    sys.exit(0)
-
-    # Start a transaction
 
     unexpanded_tweets = get_unexpanded_tweet_ids(conn)
     for rest_id in unexpanded_tweets:
         print(f"Processing unexpanded tweet: {rest_id}")
 
-        if expand_tweet(conn, tweet_api, rest_id):
+        expanded_tweet_ids = expand_tweet(conn, tweet_api, rest_id)
+
+        if len(expanded_tweet_ids) > 0:
             # after all replies are processed, mark the tweet as expanded.
             mark_tweet_as_expanded(rest_id, conn)
             conn.commit()
 
             print(f"Expanded tweet: {rest_id}")
-            print("breaking for now")
-            break
+            # print("breaking for now")
+            # break
 
         else:
             print(f"Failed to expand tweet: {rest_id}")
+            conn.rollback()
             break
-

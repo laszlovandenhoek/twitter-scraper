@@ -1,5 +1,5 @@
+from datetime import datetime
 import json
-import sys
 from itertools import chain
 import time
 from time import sleep
@@ -72,7 +72,11 @@ def get_client(endpoint: Optional[str] = None):
 
     return client
 
+
 def determine_next_sleep(response: ResponseType):
+    global next_reset
+    next_reset = datetime.fromtimestamp(response.header.rate_limit_reset)
+
     remaining = response.header.rate_limit_remaining
 
     if remaining <= 10:
@@ -83,14 +87,17 @@ def determine_next_sleep(response: ResponseType):
         wait_time = 1
     return wait_time
 
+
 next_sleep: float = 0
+next_reset: Optional[datetime] = None
+
 
 def get_likes(
     api: TweetApiUtils, user_id: str, cursor: Optional[TimelineTimelineCursor] = None
 ) -> ResponseType:
     global next_sleep
     print(
-        f"\t\t\tgetting likes for user {user_id} with cursor {cursor.value if cursor is not None else None} (in {next_sleep}s)"
+        f"\t\t\tgetting likes for user {user_id} with cursor {cursor.value if cursor is not None else None} (in {round(next_sleep, 1)}s, next reset at {next_reset})"
     )
     sleep(next_sleep)
     response = api.get_likes(
@@ -106,7 +113,7 @@ def get_bookmarks(
 ) -> ResponseType:
     global next_sleep
     print(
-        f"\t\t\tgetting bookmarks with cursor {cursor.value if cursor is not None else None} (in {next_sleep}s)"
+        f"\t\t\tgetting bookmarks with cursor {cursor.value if cursor is not None else None} (in {round(next_sleep, 1)}s, next reset at {next_reset})"
     )
     sleep(next_sleep)
     response = api.get_bookmarks(
@@ -121,7 +128,7 @@ def get_tweet_detail(
 ) -> ResponseType:
     global next_sleep
     print(
-        f"getting details for tweet {tweet_id} {cursor.cursor_type if cursor is not None else "vanilla"} (in {next_sleep}s)"
+        f"getting details for tweet {tweet_id} {cursor.cursor_type if cursor is not None else 'vanilla'} (in {round(next_sleep, 1)}s, next reset at {next_reset})"
     )
     sleep(next_sleep)
 
@@ -260,25 +267,27 @@ def paginate(
         # First, scan current page's tweets in reverse order to find stop point
         tweets_to_yield = []
         should_continue_pagination = True
-        
+
         # Process tweets in reverse order to find where to stop
         for i in range(len(response.data.data) - 1, -1, -1):
             tweet_data = response.data.data[i]
             timeline_item = raw_entries[i]
-            
+
             if stop_fn(tweet_data.tweet):
-                print(f"Stopping fetch after tweet {tweet_data.tweet.rest_id} (found in upward pagination)")
+                print(
+                    f"Stopping fetch after tweet {tweet_data.tweet.rest_id} (found in upward pagination)"
+                )
                 should_continue_pagination = False
                 break
-            
+
             # Add to front of list to maintain original order
             tweets_to_yield.insert(0, (cursor, timeline_item, tweet_data))
-        
+
         # Only continue pagination if no stop condition was found on current page
         if should_continue_pagination and response.data.cursor.top is not None:
             # Recursively get tweets from further up
             yield from paginate(fetch_fn, stop_fn, response.data.cursor.top, direction)
-        
+
         # Yield tweets in original order
         for tweet_tuple in tweets_to_yield:
             yield tweet_tuple
@@ -306,11 +315,16 @@ def expand_tweet(
     previously_expanded_tweet_ids: Set[str] = set(),
     anchor_rest_id: str | None = None,
     quote_depth: int = 0,
+    breadcrumbs: List[Tuple[str, int, int]] = [],
 ) -> Set[str]:
     if anchor_rest_id is None:
         anchor_rest_id = tweet_id
 
-    print(f"expanding tweet {tweet_id} with anchor_rest_id {anchor_rest_id} at quote depth {quote_depth}")
+    print(
+        f"expanding tweet {tweet_id} with anchor_rest_id {anchor_rest_id} at quote depth {quote_depth}"
+    )
+    for idx, breadcrumb in enumerate(breadcrumbs):
+        print(f"{idx}: {breadcrumb[0]} ({breadcrumb[1]}/{breadcrumb[2]})")
 
     def get_tweet_detail_from_cursor(
         cursor: TimelineTimelineCursor | None = None,
@@ -416,17 +430,29 @@ def expand_tweet(
         quoted = tweet_data.quoted
         if quoted is not None:
             if quote_depth > 3:
-                print(f"Reached maximum quote depth of 3, not recursing into quoted tweet {quoted.tweet.rest_id}")
+                print(
+                    f"Reached maximum quote depth of 3, not recursing into quoted tweet {quoted.tweet.rest_id}"
+                )
             else:
                 # Recursively expand the quoted tweet to get its full conversation
 
-                if (quoted.tweet.rest_id in previously_expanded_tweet_ids.union(newly_expanded_tweet_ids)):
-                    print(f"\t\tQuoted tweet {quoted.tweet.rest_id} already saved or expanded, skipping")
+                if quoted.tweet.rest_id in previously_expanded_tweet_ids.union(
+                    newly_expanded_tweet_ids
+                ):
+                    print(
+                        f"\t\tQuoted tweet {quoted.tweet.rest_id} already saved or expanded, skipping"
+                    )
 
                 else:
                     print(f"\t\tExpanding quoted tweet {quoted.tweet.rest_id}")
                     additionally_expanded_tweet_ids = expand_tweet(
-                        conn, tweet_api, quoted.tweet.rest_id, previously_expanded_tweet_ids.union(newly_expanded_tweet_ids), anchor_rest_id, quote_depth + 1
+                        conn,
+                        tweet_api,
+                        quoted.tweet.rest_id,
+                        previously_expanded_tweet_ids.union(newly_expanded_tweet_ids),
+                        anchor_rest_id,
+                        quote_depth + 1,
+                        breadcrumbs + [(quoted.tweet.rest_id, 1, 1)],
                     )
                     newly_expanded_tweet_ids.update(additionally_expanded_tweet_ids)
 
@@ -446,12 +472,16 @@ def expand_tweet(
 
             save_tweet(conn, sort_index, reply, anchor_rest_id)
 
-            if reply.tweet.rest_id in previously_expanded_tweet_ids.union(newly_expanded_tweet_ids):
+            if reply.tweet.rest_id in previously_expanded_tweet_ids.union(
+                newly_expanded_tweet_ids
+            ):
                 print(f"\t\tReply {reply.tweet.rest_id} already expanded, skipping")
                 continue
 
             if reply.user.rest_id not in significant_users:
-                print(f"\t\tReply {reply.tweet.rest_id} is from an insignificant user, skipping")
+                print(
+                    f"\t\tReply {reply.tweet.rest_id} is from an insignificant user, skipping"
+                )
                 continue
             else:
                 print(
@@ -465,16 +495,26 @@ def expand_tweet(
                 replies_to_expand.discard(irt)
                 replies_to_expand.add(reply.tweet.rest_id)
 
-    if (len(replies_to_expand) > 0):
+    if len(replies_to_expand) > 0:
         print(f"\t\t{len(replies_to_expand)} replies to expand: {replies_to_expand}")
 
-    for reply_to_expand in replies_to_expand:
-        if reply_to_expand in previously_expanded_tweet_ids.union(newly_expanded_tweet_ids):
+    for idx, reply_to_expand in enumerate(replies_to_expand):
+        if reply_to_expand in previously_expanded_tweet_ids.union(
+            newly_expanded_tweet_ids
+        ):
             print(f"\t\t\tReply {reply_to_expand} already expanded, skipping")
             continue
 
         print(f"\t\t\tExpanding reply {reply_to_expand}")
-        additionally_expanded_tweet_ids = expand_tweet(conn, tweet_api, reply_to_expand, previously_expanded_tweet_ids.union(newly_expanded_tweet_ids), anchor_rest_id, quote_depth)
+        additionally_expanded_tweet_ids = expand_tweet(
+            conn,
+            tweet_api,
+            reply_to_expand,
+            previously_expanded_tweet_ids.union(newly_expanded_tweet_ids),
+            anchor_rest_id,
+            quote_depth,
+            breadcrumbs + [(reply_to_expand, idx + 1, len(replies_to_expand))],
+        )
         newly_expanded_tweet_ids.update(additionally_expanded_tweet_ids)
 
     print(
@@ -641,7 +681,8 @@ def update_fetch_cursor(
     print(f"Updating fetch {fetch_id} with cursor {cursor.value}")
     with conn.cursor() as c:
         c.execute(
-            "UPDATE fetches SET last_cursor = %s WHERE id = %s", (cursor.value, fetch_id)
+            "UPDATE fetches SET last_cursor = %s WHERE id = %s",
+            (cursor.value, fetch_id),
         )
 
 
